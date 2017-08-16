@@ -4,7 +4,6 @@ namespace UpdateManager_For_VSCode_Portable
 {
     class Program
     {
-        [STAThread]
         static void Main(string[] args)
         {
             Manager App = new Manager(AppDomain.CurrentDomain.BaseDirectory);
