@@ -4,37 +4,41 @@ using System.Text.RegularExpressions;
 using System.Diagnostics;
 using Ionic.Zip;
 using System.Threading;
+using System.Collections.Generic;
+using System.Net.NetworkInformation;
 
 namespace UpdateManager_For_VSCode_Portable
 {
     class Manager
     {
-        private readonly string LauncherINI = @"AppInfo\Launcher\VSCodePortable.ini";
-        private readonly string AppInfoINI = @"AppInfo\AppInfo.ini";
-        private readonly string Exe = @"VSCode\code.exe";
-        private string UpdateFile = "https://az764295.vo.msecnd.net/stable/%COMMIT-CODE%/VSCode-win32-ia32-%VERSION%.zip";
-        private string CommitUrl = "https://github.com/Microsoft/vscode/tags";
-        public string OnlineVersion = "https://code.visualstudio.com/updates/";
-        public string LocalVersion;
-        private string[] prefix =  { "href=\"/updates/", "(version ", "<strong>Update " };
-        private string[] suffix = { "\" />", ")</h1>" };
-        private string dir, temp, downloadPath;
-        private Downloader Network;
-        private int start, end, max = 0, i;
-
-        public Manager(string dir)
+        private Dictionary<string, string> files = new Dictionary<string, string>()
         {
-            this.dir = dir;
-            downloadPath = dir + "Update.zip";
+            {"LauncherINI", @"AppInfo\Launcher\VSCodePortable.ini" },
+            {"AppInfoINI", @"AppInfo\AppInfo.ini" },
+            {"App32", @"VSCode\code.exe" },
+            {"App64", @"VSCode64\code.exe" }
+        };
+        private string[] ExtractPath = { @"VSCode\", @"VSCode64\" };
+        private string[] UpdateFile =
+        {
+            "https://az764295.vo.msecnd.net/stable/%COMMIT-CODE%/VSCode-win32-ia32-%VERSION%.zip",
+            "https://az764295.vo.msecnd.net/stable/%COMMIT-CODE%/VSCode-win32-x64-%VERSION%.zip"
+        };
+        private string CommitUrl = "https://github.com/Microsoft/vscode/tags";
+        private string LocalVersion, OnlineVersion, dir, temp, commit = "";
+        private Downloader Network;
+        private int i;
+
+        public Manager()
+        {
+            dir = AppDomain.CurrentDomain.BaseDirectory;
             Network = new Downloader();
-            Init();
         }
 
-        private void Init()
+        public void Init()
         {
-            RetrieveFullUpdateLink();
             RetrieveVersionOnline();
-            LocalVersion = RetrieveDataFromFile(AppInfoINI, "LocalVersion");
+            LocalVersion = RetrieveDataFromFile(files["AppInfoINI"], "LocalVersion");
         }
 
         public bool CheckForUpdate()
@@ -44,16 +48,29 @@ namespace UpdateManager_For_VSCode_Portable
 
         public void Update()
         {
-            DownloadUpdate();
-            ApplyUpdate();
-            Console.WriteLine("Done!");
+            for(i = 0; i<2; i++)
+            {
+                DownloadUpdate(i);
+                ApplyUpdate(i);
+            }
+            WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "Updating Verison file...");
+            RefreshLocalVersion();
+            WriteLineColored(ConsoleColor.Yellow, ConsoleColor.Green, "Done!");
         }
 
-        private void DownloadUpdate()
+        private void DownloadUpdate(int id)
         {
             try
             {
-                Network.DownloadFile(GetDownloadUrl(), downloadPath);
+                if (id == 0)
+                {
+                    WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "Downloading 32bit zip...");
+                }
+                else
+                {
+                    WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "Downloading 64bit zip...");
+                }
+                Network.DownloadFile(GetDownloadUrl(id), dir + id + ".zip");
                 while (!Network.DownloadCompleted)
                     Thread.Sleep(1000);
             }
@@ -63,24 +80,22 @@ namespace UpdateManager_For_VSCode_Portable
             }
         }
 
-        private void ApplyUpdate()
+        private void ApplyUpdate(int id)
         {
             try
             {
                 Console.WriteLine("");
-                ZipFile Zipper = new ZipFile(downloadPath);
+                ZipFile Zipper = new ZipFile(dir + id + ".zip");
                 int i = 1;
                 foreach (ZipEntry file in Zipper)
                 {
                     Console.WriteLine("Extracting " + i + "/" + Zipper.Count + ": " + file.FileName);
-                    file.Extract(dir + @"VSCode\", ExtractExistingFileAction.OverwriteSilently);
+                    file.Extract(dir + ExtractPath[id], ExtractExistingFileAction.OverwriteSilently);
                     i++;
                 }
                 Zipper.Dispose();
-                Console.WriteLine("Extraction completed!\nUpdating Verison file...");
-                RefreshLocalVersion();
-                Console.WriteLine("Deleting downloaded zip...");
-                File.Delete(downloadPath);
+                WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "Extraction completed!\nDeleting downloaded zip...");
+                File.Delete(dir + id + ".zip");
             }
             catch(Exception ex)
             {
@@ -92,8 +107,15 @@ namespace UpdateManager_For_VSCode_Portable
         {
             try
             {
-                Console.WriteLine("No Update found, You are using the latest Visual Studio Code!\nStarting Visual Studio Code...");
-                Process.Start(dir + Exe, RetrieveDataFromFile(LauncherINI, "Args"));
+                WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "No Update found, You are using the latest Visual Studio Code!\nStarting Visual Studio Code...");
+                if (Environment.Is64BitOperatingSystem)
+                {
+                    Process.Start(dir + files["App64"], RetrieveDataFromFile(files["LauncherINI"], "Args"));
+                }
+                else
+                {
+                    Process.Start(dir + files["App32"], RetrieveDataFromFile(files["LauncherINI"], "Args"));
+                }
             }
             catch (Exception ex)
             {
@@ -105,7 +127,7 @@ namespace UpdateManager_For_VSCode_Portable
         {
             try
             {
-                string[] temp = File.ReadAllLines(dir + AppInfoINI);
+                string[] temp = File.ReadAllLines(dir + files["AppInfoINI"]);
                 for (i = 0; i < temp.Length; i++)
                 {
                     if (temp[i].Contains("PackageVersion"))
@@ -117,7 +139,7 @@ namespace UpdateManager_For_VSCode_Portable
                         temp[i] = "DisplayVersion=" + OnlineVersion;
                     }
                 }
-                File.WriteAllLines(dir + AppInfoINI, temp);
+                File.WriteAllLines(dir + files["AppInfoINI"], temp);
             }
             catch (Exception ex)
             {
@@ -162,45 +184,13 @@ namespace UpdateManager_For_VSCode_Portable
             return data;
         }
 
-        private void RetrieveFullUpdateLink()
-        {
-            try
-            {
-                temp = Network.client.DownloadString(OnlineVersion);
-                start = temp.IndexOf(prefix[0]) + prefix[0].Length;
-                end = temp.IndexOf(suffix[0]) - start;
-                OnlineVersion = OnlineVersion + temp.Substring(start, end);
-            }
-            catch (Exception ex)
-            {
-                ErrorCall("An Error occured while retriving VSCode's updates list!\nPlease Contact the developer and sent this a screenshot of me!\n\n " + ex.ToString());
-            }
-        }
-
         private void RetrieveVersionOnline()
         {
             try
             {
-                string temp = Network.client.DownloadString(OnlineVersion);
-                if (temp.LastIndexOf(prefix[2]) == -1)
-                {
-                    start = temp.IndexOf(prefix[1]) + prefix[1].Length;
-                    end = temp.IndexOf(suffix[1]) - start;
-                    OnlineVersion = temp.Substring(start, end) + ".0";
-                }
-                else
-                {
-                    foreach (Match find in Regex.Matches(temp, @"<p><strong>Update \d+.\d+.\d+</strong>"))
-                    {
-                        string RegExResult = find.Value.Replace("<p><strong>Update ", "").Replace("</strong>", "");
-                        int NumVersion = Int32.Parse(RegExResult.Replace(".", ""));
-                        if (NumVersion > max)
-                        {
-                            max = NumVersion;
-                            OnlineVersion = RegExResult;
-                        }
-                    }
-                }
+                string temp = Network.client.DownloadString(CommitUrl);
+                OnlineVersion = Regex.Match(temp, "<span class=\"tag-name\">.{6}</span>").Value.Replace("<span class=\"tag-name\">", "").Replace("</span>", "");
+
             }
             catch (Exception ex)
             {
@@ -208,19 +198,36 @@ namespace UpdateManager_For_VSCode_Portable
             }
         }
 
-        private string GetDownloadUrl()
+        public bool GetConnection()
         {
-            string commit = "";
             try
             {
-                string materials = Network.client.DownloadString(CommitUrl);
-                commit = Regex.Match(materials, "<a href=\"/Microsoft/vscode/commit/.{40}\">").Value.Replace("<a href=\"/Microsoft/vscode/commit/", "").Replace("\">", "");
+                Ping myPing = new Ping();
+                PingReply reply = myPing.Send("23.221.227.186", 1000, new byte[32], new PingOptions());
+                // 23.221.227.186 = www.visualstudio.com
+                return true;
             }
-            catch (Exception ex)
+            catch
             {
-                ErrorCall("An Error occured while retriving VSCode's update file url!\nPlease Contact the developer and sent this a screenshot of me!\n\n " + ex.ToString());
+                return false;
             }
-            return UpdateFile.Replace("%COMMIT-CODE%", commit).Replace("%VERSION%", OnlineVersion);
+        }
+
+        private string GetDownloadUrl(int id)
+        {
+            if (commit.Length == 0)
+            {
+                try
+                {
+                    string materials = Network.client.DownloadString(CommitUrl);
+                    commit = Regex.Match(materials, "<a href=\"/Microsoft/vscode/commit/.{40}\">").Value.Replace("<a href=\"/Microsoft/vscode/commit/", "").Replace("\">", "");
+                }
+                catch (Exception ex)
+                {
+                    ErrorCall("An Error occured while retriving VSCode's update file url!\nPlease Contact the developer and sent this a screenshot of me!\n\n " + ex.ToString());
+                }
+            }
+            return UpdateFile[id].Replace("%COMMIT-CODE%", commit).Replace("%VERSION%", OnlineVersion);
         }
 
         public string GetLocalVersion => LocalVersion;
@@ -229,10 +236,18 @@ namespace UpdateManager_For_VSCode_Portable
 
         private void ErrorCall(string message)
         {
-            Console.Error.WriteLine(message);
-            Console.Error.WriteLine("\n\nPress any key to close...");
+            Console.Error.WriteLine(message + "\n");
+            WriteLineColored(ConsoleColor.Red, ConsoleColor.Black, "Press any key to close...");
             Console.ReadKey();
             Environment.Exit(0);
+        }
+
+        public void WriteLineColored(ConsoleColor Background, ConsoleColor FontColor, String Text)
+        {
+            Console.BackgroundColor = Background;
+            Console.ForegroundColor = FontColor;
+            Console.Out.WriteLine(" " + Text + " ");
+            Console.ResetColor();
         }
     }
 }

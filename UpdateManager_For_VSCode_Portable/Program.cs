@@ -6,14 +6,22 @@ namespace UpdateManager_For_VSCode_Portable
     {
         static void Main(string[] args)
         {
-            Manager App = new Manager(AppDomain.CurrentDomain.BaseDirectory);
-            if (App.CheckForUpdate())
+            Manager App = new Manager();
+            if (App.GetConnection())
             {
-                Console.WriteLine("A new update is available!\nLocal Version: " + App.GetLocalVersion +"\nLatest Version: " + App.GetOnlineVersion);
-                Console.WriteLine("Do you want to updare now? (y/n)");
-                if (RequestInput().Equals("y"))
+                App.Init();
+                if (App.CheckForUpdate())
                 {
-                    App.Update();
+                    App.WriteLineColored(ConsoleColor.White, ConsoleColor.Black, "\tA new update is available!\t");
+                    App.WriteLineColored(ConsoleColor.Green, ConsoleColor.Blue, "\t---------------------------\t");
+                    App.WriteLineColored(ConsoleColor.White, ConsoleColor.Black, "Local Version:  " + App.GetLocalVersion);
+                    App.WriteLineColored(ConsoleColor.Yellow, ConsoleColor.Blue, "Latest Version: " + App.GetOnlineVersion);
+                    App.WriteLineColored(ConsoleColor.Green, ConsoleColor.Blue, "\t---------------------------\t");
+                    Console.WriteLine("Do you want to updare now? (y/n)");
+                    if (RequestInput().Equals("y"))
+                    {
+                        App.Update();
+                    }
                 }
             }
             App.StartProgram();
