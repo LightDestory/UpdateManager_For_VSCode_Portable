@@ -1,8 +1,8 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
-using Ionic.Zip;
 using System.Threading;
 using System.Collections.Generic;
 using System.Net.NetworkInformation;
@@ -85,15 +85,26 @@ namespace UpdateManager_For_VSCode_Portable
             try
             {
                 Console.WriteLine("");
-                ZipFile Zipper = new ZipFile(dir + id + ".zip");
                 int i = 1;
-                foreach (ZipEntry file in Zipper)
+                using (ZipArchive archive = ZipFile.OpenRead(dir + id + ".zip"))
                 {
-                    Console.WriteLine("Extracting " + i + "/" + Zipper.Count + ": " + file.FileName);
-                    file.Extract(dir + ExtractPath[id], ExtractExistingFileAction.OverwriteSilently);
-                    i++;
+                    foreach (ZipArchiveEntry entry in archive.Entries)
+                    {
+                        string entryFullname = Path.Combine(dir + ExtractPath[id], entry.FullName);
+                        string entryPath = Path.GetDirectoryName(entryFullname);
+                        if (!(Directory.Exists(entryPath)))
+                        {
+                            Directory.CreateDirectory(entryPath);
+                        }
+                        string entryFn = Path.GetFileName(entryFullname);
+                        if (!String.IsNullOrEmpty(entryFn))
+                        {
+                            Console.WriteLine("Extracting " + i + "/" + archive.Entries.Count + ": " + entry.FullName);
+                            entry.ExtractToFile(entryFullname, true);
+                            i++;
+                        }
+                    }
                 }
-                Zipper.Dispose();
                 WriteLineColored(ConsoleColor.White, ConsoleColor.Blue, "Extraction completed!\nDeleting downloaded zip...");
                 File.Delete(dir + id + ".zip");
             }
